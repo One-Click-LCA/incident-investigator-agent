@@ -33,6 +33,9 @@ Pass findings forward: give each specialist the relevant context from prior resu
 
 Call ONE specialist at a time. Read its result fully before deciding the next step.
 
+All operations are strictly READ-ONLY. Never write, update, insert, delete, or execute
+any mutation on Git repositories, MongoDB, Redis, RDS/PostgreSQL, or any other system.
+
 ## Confidence
 - high: 3+ independent sources confirm the root cause, complete causal chain
 - medium: 1-2 sources support it, some gaps

@@ -200,13 +200,14 @@ def get_mongo_server_stats(env: str) -> str:
         if not uri:
             return {"status": "skipped", "reason": f"{prefix}_URI not configured in secret"}
 
-        from pymongo import MongoClient
+        from pymongo import MongoClient, ReadPreference
         client = MongoClient(
             uri,
             serverSelectionTimeoutMS=5000,
             connectTimeoutMS=5000,
             socketTimeoutMS=8000,
             appName="incident-investigator-readonly",
+            read_preference=ReadPreference.SECONDARY_PREFERRED,
         )
         try:
             status = client.admin.command("serverStatus")

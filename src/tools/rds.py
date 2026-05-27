@@ -177,27 +177,30 @@ def get_rds_metrics(service: str, env: str, minutes: int = 30) -> str:
     """
     def _run():
         cw = _cw()
-        rds_client = _session().client("rds")
         suffix = "prod" if is_prod_env(env) else "dev"
-        secret_name = f"rds-{service}-{suffix}"
 
-        try:
-            sm = _session().client("secretsmanager")
-            resp = sm.get_secret_value(SecretId=secret_name)
-            data = json.loads(resp["SecretString"])
-            # Search all keys by substring to handle prefixed keys like main_host, db_host, endpoint
-            host = ""
-            for k, v in data.items():
-                if v and any(x in k.lower() for x in ("host", "endpoint")) and "password" not in k.lower():
-                    host = v
+        # Try candidate secret names in order (strips env suffix, -service, etc.)
+        sm = _session().client("secretsmanager")
+        host = ""
+        tried = _candidate_secret_names(service, env)
+        for secret_name in tried:
+            try:
+                resp = sm.get_secret_value(SecretId=secret_name)
+                data = json.loads(resp["SecretString"])
+                for k, v in data.items():
+                    if v and any(x in k.lower() for x in ("host", "endpoint")) and "password" not in k.lower():
+                        host = str(v)
+                        break
+                if host:
                     break
-            # Fall back to AWS API if host not in secret
-            if not host:
-                host = _get_rds_host_from_aws(service, env)
-            # Derive instance ID from RDS hostname: instance-id.xxxx.region.rds.amazonaws.com
-            instance_id = host.split(".")[0] if host else service
-        except Exception:
-            instance_id = f"{service}-{suffix}"
+            except Exception:
+                continue
+
+        if not host:
+            host = _get_rds_host_from_aws(service, env)
+
+        # Derive CloudWatch instance ID from RDS hostname: id.xxx.region.rds.amazonaws.com
+        instance_id = host.split(".")[0] if host else _strip_env_suffix(service) + f"-{suffix}"
 
         end = datetime.now(timezone.utc)
         start = end - timedelta(minutes=minutes + 15)
