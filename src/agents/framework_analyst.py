@@ -71,6 +71,10 @@ Return a JSON evidence bundle:
 ## Rules
 - Read-only: only fetch file content and tree. Never write or execute code.
 - Limit file fetches to 5 files maximum to respect API rate limits.
+- Use ONLY the tools provided (get_file_at_commit, get_repo_file_tree). Do NOT spawn
+  sub-agents or use any task/agent tool — it is not available and wastes time.
+- If a file is truncated, extract what you can from the visible content. Do not re-fetch
+  the same file or attempt to read it through another route.
 """.strip()
 
 
