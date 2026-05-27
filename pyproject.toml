@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "incident-investigator-agent"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=0.2",
+    "langchain-core>=0.3",
+    "deepagents>=0.6",            # DeepAgent harness (built on LangGraph)
+    "langchain-aws>=0.2",        # ChatBedrock
+    "boto3>=1.34",               # ECS, CW, SM, RDS, ELBv2, Bedrock
+    "requests>=2.31",            # ELK HTTP + Atlas OAuth API
+    "pymongo[srv]>=4.6",         # MongoDB direct (srv includes dnspython)
+    "psycopg2-binary>=2.9",      # RDS PostgreSQL direct
+    "redis>=5.0",                # Redis INFO / SLOWLOG
+    "python-dotenv>=1.0",        # .env loading
+    "jinja2>=3.1",               # RCA markdown template
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]

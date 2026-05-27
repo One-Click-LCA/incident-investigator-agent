@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Secrets / local config
+.env
+
+# Agent output
+output/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.claude/
