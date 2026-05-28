@@ -16,7 +16,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-VALID_ENVS = {"preprod", "prod", "staging", "qa", "features", "devops"}
 VALID_FOCUS = {"all", "ecs", "logs", "mongo", "redis", "rds", "github"}
 
 
@@ -26,7 +25,7 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--service", required=True, help="ECS service name (e.g. supply-chain-service)")
-    parser.add_argument("--env", required=True, help="Environment: preprod | prod | staging | qa")
+    parser.add_argument("--env", required=True, help="Environment name — any ECS cluster suffix (e.g. preprod, prod, config, mfg, betie)")
     parser.add_argument("--reason", default="", help="Incident description / observed symptoms")
     parser.add_argument("--minutes", type=int, default=30, help="Investigation window in minutes (default: 30)")
     parser.add_argument("--focus", default="all", choices=sorted(VALID_FOCUS), help="Focus area (default: all)")
@@ -37,10 +36,6 @@ def parse_args() -> argparse.Namespace:
 
 def main():
     args = parse_args()
-
-    if args.env not in VALID_ENVS:
-        print(f"[error] Unknown env '{args.env}'. Valid: {', '.join(sorted(VALID_ENVS))}")
-        sys.exit(1)
 
     # Set output dir in config before any tools import it
     import os

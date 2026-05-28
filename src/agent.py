@@ -40,8 +40,9 @@ def _build_orchestrator_tools(deps: dict, env: str, has_github: bool, model):
     if deps.get("rds", {}).get("detected"):
         tools.append(build_rds_analyst_tool(model))
 
-    # Topology + data domain always available — orchestrator decides when to invoke them
-    tools.append(build_topology_analyst_tool(model))
+    # Topology only when external URLs were detected in the task definition
+    if deps.get("external_urls"):
+        tools.append(build_topology_analyst_tool(model))
 
     if has_github:
         tools.append(build_data_domain_analyst_tool(model))

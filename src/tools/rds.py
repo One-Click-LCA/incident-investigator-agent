@@ -23,7 +23,7 @@ def _get_rds_host_from_aws(service: str, env: str) -> str:
     """Fall back to AWS describe_db_instances when host is absent from the secret.
     Matches RDS instance identifier against service name fragments by convention."""
     suffix = "prod" if is_prod_env(env) else "dev"
-    base = _strip_env_suffix(service)
+    base = _strip_env_suffix(service, env)
 
     # Candidate substrings to match against the DB instance identifier
     hints = sorted({
@@ -48,9 +48,16 @@ def _get_rds_host_from_aws(service: str, env: str) -> str:
 _ENV_SUFFIXES = ("-preprod", "-staging", "-features", "-dev", "-prod", "-qa", "-uat", "-mfg", "-devops", "-internal")
 
 
-def _strip_env_suffix(name: str) -> str:
+def _strip_env_suffix(name: str, env: str = "") -> str:
+    # Try known suffixes first
     for tag in _ENV_SUFFIXES:
         if name.endswith(tag):
+            return name[: -len(tag)]
+    # Fall back to stripping the actual env value passed at runtime
+    # handles squad envs like -config, -mfg, -betie, -compass etc.
+    if env:
+        tag = f"-{env.strip().lower()}"
+        if name.lower().endswith(tag):
             return name[: -len(tag)]
     return name
 
@@ -66,7 +73,7 @@ def _candidate_secret_names(service: str, env: str) -> list[str]:
       epd-usage-service-preprod    → rds-epd-usage-service-dev, rds-epd-usage-dev
     """
     suffix = "prod" if is_prod_env(env) else "dev"
-    base = _strip_env_suffix(service)   # strip -preprod / -staging etc.
+    base = _strip_env_suffix(service, env)   # strip -preprod / -config / -mfg etc.
     candidates = []
 
     # 1. Base name with env-suffix stripped: rds-supply-chain-service-dev
@@ -200,7 +207,7 @@ def get_rds_metrics(service: str, env: str, minutes: int = 30) -> str:
             host = _get_rds_host_from_aws(service, env)
 
         # Derive CloudWatch instance ID from RDS hostname: id.xxx.region.rds.amazonaws.com
-        instance_id = host.split(".")[0] if host else _strip_env_suffix(service) + f"-{suffix}"
+        instance_id = host.split(".")[0] if host else _strip_env_suffix(service, env) + f"-{suffix}"
 
         end = datetime.now(timezone.utc)
         start = end - timedelta(minutes=minutes + 15)

@@ -54,6 +54,9 @@ Return a JSON evidence bundle:
 - Read-only investigations only.
 - Only check hostnames explicitly mentioned in the incident or logs.
 - Max 5 external connectivity checks to avoid rate limits.
+- Do not call ECS tools on the primary service under investigation — its ECS health was
+  already checked by ecs_analyst. Only call get_ecs_service_status for upstream or
+  dependency services explicitly named in your task.
 """.strip()
 
 

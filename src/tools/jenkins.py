@@ -8,6 +8,30 @@ from src.config import get_secret
 from src.utils import safe_call, tool_result, is_prod_env, truncate
 
 
+def _parse_builds(data: dict) -> list:
+    builds = []
+    for b in data.get("builds", []):
+        sha = ""
+        branch = ""
+        for action in b.get("actions", []):
+            rev = action.get("lastBuiltRevision", {})
+            if rev:
+                sha = rev.get("SHA1", "")[:12]
+                branches = rev.get("branch", [])
+                branch = branches[0].get("name", "") if branches else ""
+                break
+        builds.append({
+            "number": b.get("number"),
+            "result": b.get("result"),
+            "started_at": str(b.get("timestamp")),
+            "duration_seconds": int(b.get("duration", 0) / 1000),
+            "display_name": b.get("displayName"),
+            "git_sha": sha,
+            "branch": branch,
+        })
+    return builds
+
+
 def _jenkins_creds(env: str) -> tuple[str, str, str]:
     secret = get_secret()
     prefix = "JENKINS_PROD" if is_prod_env(env) else "JENKINS_NONPROD"
@@ -32,6 +56,7 @@ def get_recent_deployments(service: str, env: str) -> str:
     """
     def _run():
         jenkins_url, jenkins_user, jenkins_token = _jenkins_creds(env)
+        jenkins_url = jenkins_url.rstrip("/")
         auth_b64 = base64.b64encode(f"{jenkins_user}:{jenkins_token}".encode()).decode()
         headers = {"Authorization": f"Basic {auth_b64}"}
 
@@ -43,13 +68,22 @@ def get_recent_deployments(service: str, env: str) -> str:
                 base = base[: -len(tag)]
                 break
 
+        # Also try with -service suffix stripped: supply-chain-service → supply-chain
+        short_base = base[:-len("-service")] if base.endswith("-service") else base
+
         # Try candidate job names in order
         if is_prod_env(env):
-            job_candidates = [f"deploy-{base}-to-ecs-prod", f"deploy-{service}-to-ecs-prod"]
+            job_candidates = [
+                f"deploy-{base}-to-ecs-prod",
+                f"deploy-{short_base}-to-ecs-prod",
+                f"deploy-{service}-to-ecs-prod",
+            ]
         else:
             job_candidates = [
                 f"deploy-{base}-to-ecs-preprod",
+                f"deploy-{short_base}-to-ecs-preprod",
                 f"deploy-{base}-to-ecs",
+                f"deploy-{short_base}-to-ecs",
                 f"deploy-{service}-to-ecs-preprod",
             ]
 
@@ -57,7 +91,7 @@ def get_recent_deployments(service: str, env: str) -> str:
             try:
                 resp = requests.get(
                     f"{jenkins_url}/job/{job_name}/api/json",
-                    params={"tree": "builds[number,result,timestamp,duration,displayName,actions[lastBuiltRevision[SHA1,branch[name]]]]{{0,5}}"},
+                    params={"tree": "builds[number,result,timestamp,duration,displayName,actions[lastBuiltRevision[SHA1,branch[name]]]]{0,5}"},
                     headers=headers,
                     timeout=8,
                 )
@@ -69,32 +103,62 @@ def get_recent_deployments(service: str, env: str) -> str:
                     return {"status": "failed", "error": "Jenkins authorization denied (403) — token lacks read permission on this job"}
                 resp.raise_for_status()
                 data = resp.json()
-                builds = []
-                for b in data.get("builds", []):
-                    sha = ""
-                    branch = ""
-                    for action in b.get("actions", []):
-                        rev = action.get("lastBuiltRevision", {})
-                        if rev:
-                            sha = rev.get("SHA1", "")[:12]
-                            branches = rev.get("branch", [])
-                            branch = branches[0].get("name", "") if branches else ""
-                            break
-                    builds.append({
-                        "number": b.get("number"),
-                        "result": b.get("result"),
-                        "started_at": str(b.get("timestamp")),
-                        "duration_seconds": int(b.get("duration", 0) / 1000),
-                        "display_name": b.get("displayName"),
-                        "git_sha": sha,
-                        "branch": branch,
-                    })
+                builds = _parse_builds(data)
                 return {"status": "success", "job_name": job_name, "jenkins_url": jenkins_url, "builds": builds}
-            except requests.HTTPError:
+            except requests.HTTPError as e:
+                if hasattr(e, 'response') and e.response is not None and e.response.status_code not in (404,):
+                    return {"status": "failed", "error": f"Jenkins HTTP {e.response.status_code} on job '{job_name}'"}
                 continue
             except Exception as e:
                 return {"status": "failed", "error": str(e)}
 
-        return {"status": "skipped", "reason": f"No Jenkins job found for service '{service}' in env '{env}'"}
+        # Fallback: search all jobs for a name containing the base service name
+        try:
+            list_resp = requests.get(
+                f"{jenkins_url}/api/json",
+                params={"tree": "jobs[name]"},
+                headers=headers,
+                timeout=8,
+            )
+            if list_resp.status_code == 200:
+                all_jobs = [j["name"] for j in list_resp.json().get("jobs", [])]
+                # Match jobs whose name contains the base or short_base and "deploy"
+                hints = [short_base, base]
+                matched = [
+                    j for j in all_jobs
+                    if "deploy" in j.lower() and any(h in j.lower() for h in hints)
+                ]
+                if matched:
+                    # Try the first matched job
+                    job_name = matched[0]
+                    resp = requests.get(
+                        f"{jenkins_url}/job/{job_name}/api/json",
+                        params={"tree": "builds[number,result,timestamp,duration,displayName,actions[lastBuiltRevision[SHA1,branch[name]]]]{0,5}"},
+                        headers=headers,
+                        timeout=8,
+                    )
+                    resp.raise_for_status()
+                    builds = _parse_builds(resp.json())
+                    return {
+                        "status": "success",
+                        "job_name": job_name,
+                        "jenkins_url": jenkins_url,
+                        "builds": builds,
+                        "note": f"Job discovered via search (candidates tried: {job_candidates})",
+                    }
+                return {
+                    "status": "skipped",
+                    "reason": f"No Jenkins job found for service '{service}' in env '{env}'",
+                    "candidates_tried": job_candidates,
+                    "all_deploy_jobs": [j for j in all_jobs if "deploy" in j.lower()][:20],
+                }
+        except Exception:
+            pass
+
+        return {
+            "status": "skipped",
+            "reason": f"No Jenkins job found for service '{service}' in env '{env}'",
+            "candidates_tried": job_candidates,
+        }
 
     return tool_result(safe_call("get_recent_deployments", _run))
